@@ -1,0 +1,170 @@
+#! /usr/bin/env bash
+
+set -eu
+
+AWS_PROFILE="tooling"
+
+usage() {
+	cat << EOF
+NAME
+    aws-instance - Helper tool for AWS instance control / ssh.
+
+SYNOPSIS
+    $0 [-p profile_name] [-u ssh_user] [-i ssh_identity_file] <instance_name>
+        <command> [<argument>...]
+
+OPTIONS
+    -p profile_name
+        Use the specified profile for aws cli commands. This can also be done
+        with env variable. Order of precedence: "-p profile_name", if not
+        present, TOOLS_AWS_PROFILE, allow a distinct default than the one for
+        direct aws commands. And last, AWS_PROFILE, Default AWS cli env var.
+
+    -u ssh_user
+        Username to use in ssh command. Defaults to ubuntu.
+
+    -i identity_file
+        SSH identity file (see man ssh). Can be set using
+        TOOLS_AWS_IDENTITY_FILE env variable.
+
+ARGUMENTS
+    INSTANCE_NAME
+        Name of existing ec2 instance in specified AWS profile.
+    COMMANDS
+        start, stop, ssh
+        scpto src dest
+          Copy local src to remote dest.
+        scpfrom src dest
+          Copy remote src to local dest.
+
+EOF
+}
+
+if [[ -n "${TOOLS_AWS_PROFILE-}" ]]
+then
+	AWS_PROFILE="$TOOLS_AWS_PROFILE"
+fi
+
+sshUser="ubuntu"
+sshIdentity=""
+if [[ -n "${TOOLS_AWS_SSH_IDENTITY_FILE-}" ]]
+then
+	sshIdentity="$TOOLS_AWS_SSH_IDENTITY_FILE"
+fi
+
+while getopts ":p:u:i" o; do
+	case "$o" in
+		p) AWS_PROFILE=${OPTARG} ;;
+		u) sshUser=${OPTARG} ;;
+		i) sshIdentity=${OPTARG} ;;
+		[?])
+			usage
+			exit 1
+		;;
+  esac
+done
+shift $((OPTIND-1))
+
+if [[ $# -lt 2 ]]
+then
+	usage
+	exit 1
+fi
+
+if [[ -z "$AWS_PROFILE" ]]
+then
+	echo "AWS_PROFILE not defined or empty"
+	usage
+	exit 1
+fi
+
+instanceName="$1"
+command="$2"
+
+# Ignore already processed arguments
+shift
+shift
+
+# Identify the instance itself
+instanceId=$(aws ec2 describe-instances | jq ".Reservations[].Instances[] | {InstanceId, Name: .Tags[] | select(.Key==\"Name\").Value} | select(.Name==\"$instanceName\").InstanceId" -r)
+if [ -z "$instanceId" ]
+then
+	echo "instance '$instanceName' not found"
+	exit 1
+fi
+
+describeInstanceStatus=$(aws ec2 describe-instance-status --instance-ids "$instanceId")
+instanceState=$(echo "$describeInstanceStatus" | jq '.InstanceStatuses[0].InstanceStatus.Status' -r)
+
+case "$command" in
+	"start")
+		if [[ "$instanceState" == "ok" ]]
+		then
+			echo "instance already running"
+			exit 0
+		fi
+	 	aws ec2 start-instances --instance-ids "$instanceId" > /dev/null 2>&1 
+		exit 0
+		;;
+
+	"stop")
+		if [[ "$instanceState" == "ok" ]]
+		then
+		 	aws ec2 stop-instances --instance-ids "$instanceId" > /dev/null 2>&1 
+			exit 0
+		fi
+		echo "instance state is not 'ok', is it running ?"
+		exit 0
+		;;
+esac
+
+if [[ "$instanceState" != "ok" ]]
+then
+	echo "aws ec2 describe-instance-status --instance-ids \"${instanceId}\""
+	echo "$describeInstanceStatus" | jq .
+	echo "instance state is not 'ok', is it running ?"
+	exit 1
+fi
+
+# Find public ip of the instance
+instanceIp=$(aws ec2 describe-instances --instance-ids "$instanceId" | jq ".Reservations[].Instances[0].PublicIpAddress" -r)
+
+if [[ -z "$instanceIp" ]]
+then
+	echo "instance IP not found"
+	exit 1
+fi
+
+# Avoid ssh asking for 
+sshOptions=(-o "UserKnownHostsFile=/dev/null" -o "StrictHostKeyChecking=no")
+if [[ -n "$sshIdentity" ]]
+then
+	sshOptions+=(-i "$sshIdentity")
+fi
+
+case "$command" in
+	"ssh")
+		ssh "${sshOptions[@]}" "$sshUser@$instanceIp"
+		exit 0
+		;;
+	"scpto")
+		if [[ $# != 2 ]]
+		then
+			echo "scpto commands requires exactly 2 additional arguments"
+			exit 1
+		fi
+	  scp "${sshOptions[@]}" -r $1 "$sshUser@$instanceIp:$2"
+		;;
+	"scpfrom")
+		if [[ $# != 2 ]]
+		then
+			echo "scpfrom commands requires exactly 2 additional arguments"
+			exit 1
+		fi
+	  scp "${sshOptions[@]}" -r "$sshUser@$instanceIp:$1" $2
+		;;
+	*)
+	  echo "unkown command: $command"
+		exit 1
+		;;
+esac
