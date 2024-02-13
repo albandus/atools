@@ -14,18 +14,23 @@ SYNOPSIS
         <command> [<argument>...]
 
 OPTIONS
+  AWS CLI OPTIONS
     -p profile_name
         Use the specified profile for aws cli commands. This can also be done
         with env variable. Order of precedence: "-p profile_name", if not
         present, TOOLS_AWS_PROFILE, allow a distinct default than the one for
-        direct aws commands. And last, AWS_PROFILE, Default AWS cli env var.
+        direct awos commands. And last, AWS_PROFILE, Default AWS cli env var.
+
+  SSH OPTIONS
+    -a  Disable ssh agent forwarding. Without it, option -A is added to ssh
+        command line.
+    -i identity_file
+        SSH identity file (see man ssh). Can be set using
+        TOOLS_AWS_IDENTITY_FILE env variable.
 
     -u ssh_user
         Username to use in ssh command. Defaults to ubuntu.
 
-    -i identity_file
-        SSH identity file (see man ssh). Can be set using
-        TOOLS_AWS_IDENTITY_FILE env variable.
 
 ARGUMENTS
     INSTANCE_NAME
@@ -47,16 +52,18 @@ fi
 
 sshUser="ubuntu"
 sshIdentity=""
+sshForward="-A"
 if [[ -n "${TOOLS_AWS_SSH_IDENTITY_FILE-}" ]]
 then
 	sshIdentity="$TOOLS_AWS_SSH_IDENTITY_FILE"
 fi
 
-while getopts ":p:u:i" o; do
+while getopts "ai:p:u:" o; do
 	case "$o" in
+		a) sshForward="-a" ;;
+		i) sshIdentity=${OPTARG} ;;
 		p) AWS_PROFILE=${OPTARG} ;;
 		u) sshUser=${OPTARG} ;;
-		i) sshIdentity=${OPTARG} ;;
 		[?])
 			usage
 			exit 1
@@ -141,6 +148,7 @@ if [[ -n "$sshIdentity" ]]
 then
 	sshOptions+=(-i "$sshIdentity")
 fi
+sshOptions+=($sshForward)
 
 case "$command" in
 	"ssh")
