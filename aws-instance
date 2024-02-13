@@ -10,7 +10,7 @@ NAME
     aws-instance - Helper tool for AWS instance control / ssh.
 
 SYNOPSIS
-    $0 [-p profile_name] [-u ssh_user] [-i ssh_identity_file] <instance_name>
+    $(basename $0) [-p profile_name] [-u ssh_user] [-i ssh_identity_file] <instance_name>
         <command> [<argument>...]
 
 OPTIONS
