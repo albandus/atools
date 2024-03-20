@@ -10,10 +10,12 @@ NAME
     aws-instance - Helper tool for AWS instance control / ssh.
 
 SYNOPSIS
-    $(basename $0) [-p profile_name] [-u ssh_user] [-i ssh_identity_file] <instance_name>
+    $(basename $0) [-p profile_name] [-u ssh_user] [-i ssh_identity_file] [-d] <instance_name|instance_id>
         <command> [<argument>...]
 
 OPTIONS
+  -d  First argument is an instance ID, do not try to find ID from an instance_name
+
   AWS CLI OPTIONS
     -p profile_name
         Use the specified profile for aws cli commands. This can also be done
@@ -57,10 +59,12 @@ if [[ -n "${TOOLS_AWS_SSH_IDENTITY_FILE-}" ]]
 then
 	sshIdentity="$TOOLS_AWS_SSH_IDENTITY_FILE"
 fi
+resolveName=1
 
-while getopts "ai:p:u:" o; do
+while getopts "adi:p:u:" o; do
 	case "$o" in
 		a) sshForward="-a" ;;
+		d) resolveName=0 ;;
 		i) sshIdentity=${OPTARG} ;;
 		p) AWS_PROFILE=${OPTARG} ;;
 		u) sshUser=${OPTARG} ;;
@@ -92,12 +96,16 @@ command="$2"
 shift
 shift
 
-# Identify the instance itself
-instanceId=$(aws ec2 describe-instances | jq ".Reservations[].Instances[] | {InstanceId, Name: .Tags[] | select(.Key==\"Name\").Value} | select(.Name==\"$instanceName\").InstanceId" -r)
-if [ -z "$instanceId" ]
+instanceId="$instanceName"
+if [[ "$resolveName" == 1 ]]
 then
-	echo "instance '$instanceName' not found"
-	exit 1
+	# Identify the instance itself
+	instanceId=$(aws ec2 describe-instances | jq ".Reservations[].Instances[] | {InstanceId, Name: .Tags[] | select(.Key==\"Name\").Value} | select(.Name==\"$instanceName\").InstanceId" -r)
+	if [ -z "$instanceId" ]
+	then
+		echo "instance '$instanceName' not found"
+		exit 1
+	fi
 fi
 
 describeInstanceStatus=$(aws ec2 describe-instance-status --instance-ids "$instanceId")
