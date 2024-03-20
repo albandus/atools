@@ -108,45 +108,24 @@ then
 	fi
 fi
 
-describeInstanceStatus=$(aws ec2 describe-instance-status --instance-ids "$instanceId")
-instanceState=$(echo "$describeInstanceStatus" | jq '.InstanceStatuses[0].InstanceStatus.Status' -r)
-
 case "$command" in
 	"start")
-		if [[ "$instanceState" == "ok" ]]
-		then
-			echo "instance already running"
-			exit 0
-		fi
-	 	aws ec2 start-instances --instance-ids "$instanceId" > /dev/null 2>&1 
-		exit 0
+	 	aws ec2 start-instances --instance-ids "$instanceId"
+		exit $?
 		;;
 
 	"stop")
-		if [[ "$instanceState" == "ok" ]]
-		then
-		 	aws ec2 stop-instances --instance-ids "$instanceId" > /dev/null 2>&1 
-			exit 0
-		fi
-		echo "instance state is not 'ok', is it running ?"
-		exit 0
+		aws ec2 stop-instances --instance-ids "$instanceId"
+		exit $?
 		;;
 esac
-
-if [[ "$instanceState" != "ok" ]]
-then
-	echo "aws ec2 describe-instance-status --instance-ids \"${instanceId}\""
-	echo "$describeInstanceStatus" | jq .
-	echo "instance state is not 'ok', is it running ?"
-	exit 1
-fi
 
 # Find public ip of the instance
 instanceIp=$(aws ec2 describe-instances --instance-ids "$instanceId" | jq ".Reservations[].Instances[0].PublicIpAddress" -r)
 
-if [[ -z "$instanceIp" ]]
+if [[ -z "$instanceIp" || "$instanceIp" == null ]]
 then
-	echo "instance IP not found"
+	echo "instance IP not found, is instance started?"
 	exit 1
 fi
 
