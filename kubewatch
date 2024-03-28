@@ -1,0 +1,54 @@
+#! /usr/bin/env bash
+
+set -eu
+
+usage() {
+	cat << EOF
+NAME
+    kubewatch - Watch running pod in kubernetes.
+
+SYNOPSIS
+    $(basename $0) [-h] [-e exclude_filter] [-n seconds] [<filter>]
+
+OPTIONS
+    -h
+        Display this message.
+    -e exclude_filter
+        Argument passed to grep -vE to filter out some kube pods. If not present
+        defaults to "kibana|node-exporter|nvidia"
+    -n seconds
+        Interval in seconds to pass to watch command. Defaults to 2s.
+
+ARGUMENTS
+    FILTER
+        If present filter kubectl get pod outpout (with grep).
+EOF
+}
+
+excludeFilter="kibana|node-exporter|nvidia"
+watchInterval="2"
+
+while getopts "h:e:n" o; do
+	case "$o" in
+		e) excludeFilter="${OPTARG}" ;;
+		n) watchInterval="${OPTARG}" ;;
+		h)
+			usage
+			exit 0
+		;;
+  esac
+done
+shift $((OPTIND-1))
+
+filter=""
+if [[ $# == 1 ]]
+then
+	filter="$1"
+fi
+
+if [[ -z "$filter" ]]
+then
+	watch -n $watchInterval "kubectl get pod | grep -vE '$excludeFilter'"
+else
+	watch -n $watchInterval "kubectl get pod | grep -vE '$excludeFilter' | grep '$filter'" 
+fi
